@@ -28,8 +28,7 @@ TAKE_PROFIT_PCT = 1.0175        # +1.75%
 STOP_LOSS_TRIGGER_PCT = 0.9940  # -0.60% 
 STOP_LOSS_LIMIT_PCT = 0.9930    # -0.70% 
 
-# Nuevos Filtros Cuantitativos de Entrada
-UMBRAL_ATR_PCT = 0.25           # Volatilidad mínima exigida (Aumentado)
+UMBRAL_ATR_PCT = 0.25           # Volatilidad mínima exigida
 DISTANCIA_CRUCE_PCT = 0.05      # Brecha mínima entre MAs para confirmar fuerza
 
 # ==========================================
@@ -141,9 +140,14 @@ def procesar_mercado(simbolo, df, btc_total, btc_free, usdt_free):
             colocar_orden_oco(simbolo, btc_free, precio_entrada)
             return
 
-    # B. ESCENARIO LIQUIDEZ (Filtros de Entrada Estrictos)
+    # B. ESCENARIO LIQUIDEZ (Filtros y Telemetría)
     else:
-        print(f"Evaluando | Precio: ${precio_actual:.2f} | Gap: {(((ultima_rapida/ultima_lenta)-1)*100):.3f}% | Vol: {ultimo_atr:.3f}%")
+        # Variables de telemetría visual
+        fase = "ALCISTA" if ultima_rapida > ultima_lenta else "BAJISTA"
+        estado_vol = "[OK]" if ultimo_atr >= UMBRAL_ATR_PCT else "[BLOQUEADO]"
+        gap_actual_pct = ((ultima_rapida - ultima_lenta) / ultima_lenta) * 100
+        
+        print(f"Dashboard | USDT: {usdt_free:.2f} | Fase: {fase} | Gap: {gap_actual_pct:.3f}% | Vol: {ultimo_atr:.3f}% {estado_vol}")
         
         # Filtro 1: Volatilidad
         if ultimo_atr < UMBRAL_ATR_PCT:
@@ -153,8 +157,6 @@ def procesar_mercado(simbolo, df, btc_total, btc_free, usdt_free):
         if ultima_rapida > ultima_lenta:
             
             # Filtro 3: Distancia de Confirmación (Brecha)
-            gap_actual_pct = ((ultima_rapida - ultima_lenta) / ultima_lenta) * 100
-            
             if gap_actual_pct < DISTANCIA_CRUCE_PCT:
                 print(f"-> Cruce sin fuerza suficiente. Brecha de {gap_actual_pct:.3f}% no supera el umbral de {DISTANCIA_CRUCE_PCT}%.")
                 return
@@ -182,7 +184,7 @@ def bot_daemon():
     moneda_base = simbolo.split('/')[0]
     moneda_cotiz = simbolo.split('/')[1]
     
-    print("=== INICIANDO BOT ALGORÍTMICO V4 (FILTROS CUANTITATIVOS) ===")
+    print("=== INICIANDO BOT ALGORÍTMICO V4.1 (TELEMETRÍA VISUAL) ===")
     
     while True:
         try:
