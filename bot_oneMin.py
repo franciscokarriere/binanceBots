@@ -21,14 +21,16 @@ exchange = ccxt.binance({
     }
 })
 
-# Cargar mercados una vez para garantizar precisión decimal
 exchange.load_markets()
 
-# Parámetros de Gestión de Riesgo (Escenario Híbrido)
+# Parámetros de Gestión de Riesgo (Protocolo Estricto)
 TAKE_PROFIT_PCT = 1.0175        # +1.75%
-STOP_LOSS_TRIGGER_PCT = 0.9940  # -0.60% (Precio que dispara la emergencia)
-STOP_LOSS_LIMIT_PCT = 0.9930    # -0.70% (Precio de venta asegurado tras el disparo)
-UMBRAL_ATR_PCT = 0.03           # Filtro mínimo de volatilidad
+STOP_LOSS_TRIGGER_PCT = 0.9940  # -0.60% 
+STOP_LOSS_LIMIT_PCT = 0.9930    # -0.70% 
+
+# Nuevos Filtros Cuantitativos de Entrada
+UMBRAL_ATR_PCT = 0.25           # Volatilidad mínima exigida (Aumentado)
+DISTANCIA_CRUCE_PCT = 0.05      # Brecha mínima entre MAs para confirmar fuerza
 
 # ==========================================
 # 2. OBTENCIÓN DE DATOS (CACHÉ LOCAL)
@@ -84,7 +86,6 @@ def calcular_indicadores(df, sma_rapida=50, sma_lenta=5000):
     return df
 
 def recuperar_precio_entrada(simbolo):
-    """ Failsafe: Busca el precio de la última compra. """
     try:
         trades = exchange.fetch_my_trades(simbolo, limit=20)
         compras = [t for t in trades if t['side'] == 'buy']
@@ -95,13 +96,11 @@ def recuperar_precio_entrada(simbolo):
     return 0.0
 
 def colocar_orden_oco(simbolo, cantidad, precio_entrada):
-    """ Estructura y envía el protocolo OCO a Binance. """
     tp_price = precio_entrada * TAKE_PROFIT_PCT
     sl_trigger = precio_entrada * STOP_LOSS_TRIGGER_PCT
     sl_limit = precio_entrada * STOP_LOSS_LIMIT_PCT
     
     try:
-        # Formatear a la precisión estricta exigida por la API de Binance
         tp_formateado = float(exchange.price_to_precision(simbolo, tp_price))
         sl_trig_formateado = float(exchange.price_to_precision(simbolo, sl_trigger))
         sl_lim_formateado = float(exchange.price_to_precision(simbolo, sl_limit))
@@ -128,50 +127,52 @@ def procesar_mercado(simbolo, df, btc_total, btc_free, usdt_free):
     ultima_lenta = df['SMA_lenta'].iloc[-1]
     ultimo_atr = df['ATR_pct'].iloc[-1]
     
+    if pd.isna(ultima_lenta): return
+    
     # A. ESCENARIO CON ACTIVOS (Gestión de OCO)
     if btc_total > 0.0001:
-        # Si el BTC está bloqueado (no libre), Binance tiene el OCO activo. Todo en orden.
         if btc_free < 0.0001:
-            print(f"Posición Segura | {btc_total:.6f} BTC delegados a red OCO de Binance. Esperando ruptura de límites...")
+            print(f"Posición Segura | {btc_total:.6f} BTC delegados a red OCO de Binance.")
             return
-            
-        # Si tenemos BTC libre, falta el escudo OCO (Failsafe)
         else:
             print("Detectado BTC libre sin protección OCO. Estructurando barreras...")
             precio_entrada = recuperar_precio_entrada(simbolo)
-            if precio_entrada == 0.0: 
-                precio_entrada = precio_actual
+            if precio_entrada == 0.0: precio_entrada = precio_actual
             colocar_orden_oco(simbolo, btc_free, precio_entrada)
             return
 
-    # B. ESCENARIO LIQUIDEZ (Buscando Entrada)
+    # B. ESCENARIO LIQUIDEZ (Filtros de Entrada Estrictos)
     else:
-        print(f"Buscando Entrada | Precio: ${precio_actual:.2f} | SMA50: ${ultima_rapida:.2f} | SMA5000: ${ultima_lenta:.2f} | Volatilidad: {ultimo_atr:.3f}%")
+        print(f"Evaluando | Precio: ${precio_actual:.2f} | Gap: {(((ultima_rapida/ultima_lenta)-1)*100):.3f}% | Vol: {ultimo_atr:.3f}%")
         
-        if pd.isna(ultima_lenta): return
+        # Filtro 1: Volatilidad
         if ultimo_atr < UMBRAL_ATR_PCT:
-            print("-> Mercado sin fuerza (ATR bajo). Operación bloqueada.")
             return
             
+        # Filtro 2: Cruce de Medias
         if ultima_rapida > ultima_lenta:
+            
+            # Filtro 3: Distancia de Confirmación (Brecha)
+            gap_actual_pct = ((ultima_rapida - ultima_lenta) / ultima_lenta) * 100
+            
+            if gap_actual_pct < DISTANCIA_CRUCE_PCT:
+                print(f"-> Cruce sin fuerza suficiente. Brecha de {gap_actual_pct:.3f}% no supera el umbral de {DISTANCIA_CRUCE_PCT}%.")
+                return
+            
             try:
                 tamano_compra = (usdt_free * 0.98) / precio_actual
-                print(f"\\n[!] GOLDEN CROSS DETECTADO. Ejecutando COMPRA de {tamano_compra:.6f} BTC a ${precio_actual:.2f}")
+                print(f"\n[!] CONDICIONES ÓPTIMAS ALCANZADAS. Ejecutando COMPRA de {tamano_compra:.6f} BTC a ${precio_actual:.2f}")
                 orden_compra = exchange.create_market_buy_order(simbolo, tamano_compra)
                 
-                # Extraer precio real de ejecución para cálculos precisos
                 precio_ejecutado = orden_compra.get('average', orden_compra.get('price', precio_actual))
-                
-                # Pausa estructural de 2 segundos para permitir a los nodos de Binance actualizar saldos
                 time.sleep(2)
                 balance_post = exchange.fetch_balance()
                 btc_adquirido = balance_post[simbolo.split('/')[0]]['free']
                 
-                # Desplegar escudo OCO inmediatamente
                 colocar_orden_oco(simbolo, btc_adquirido, precio_ejecutado)
                 
             except Exception as e:
-                print(f"Error en bloque de entrada: {e}")
+                print(f"Error en ejecución de compra: {e}")
 
 # ==========================================
 # 4. CICLO PRINCIPAL (DAEMON)
@@ -181,38 +182,35 @@ def bot_daemon():
     moneda_base = simbolo.split('/')[0]
     moneda_cotiz = simbolo.split('/')[1]
     
-    print("=== INICIANDO BOT ALGORÍTMICO V3 (INFRAESTRUCTURA OCO) ===")
+    print("=== INICIANDO BOT ALGORÍTMICO V4 (FILTROS CUANTITATIVOS) ===")
     
     while True:
         try:
-            print(f"\\n[{pd.Timestamp.now().strftime('%H:%M:%S')}] Evaluando...")
+            print(f"\n[{pd.Timestamp.now().strftime('%H:%M:%S')}] Escaneando mercado...")
             
-            # Obtener saldos crudos de la API
             balance_raw = exchange.fetch_balance()
             btc_total = balance_raw[moneda_base]['total']
             btc_free = balance_raw[moneda_base]['free']
             usdt_free = balance_raw[moneda_cotiz]['free']
             
-            # Procesamiento de Mercado
             df = obtener_datos(simbolo, '1m', 5000)
             df = calcular_indicadores(df)
             
             procesar_mercado(simbolo, df, btc_total, btc_free, usdt_free)
             
-            # Limpieza exhaustiva
             del df
             gc.collect()
             
             time.sleep(60)
             
         except KeyboardInterrupt:
-            print("\\nEjecución detenida manualmente.")
+            print("\nEjecución detenida manualmente.")
             break
         except ccxt.NetworkError:
-            print("Error de red con Binance. Se reintentará en el próximo ciclo.")
+            print("Error de red. Se reintentará en el próximo ciclo.")
             time.sleep(60)
         except Exception as e:
-            print(f"\\nFallo general en el ciclo: {e}")
+            print(f"\nFallo general: {e}")
             time.sleep(60)
 
 if __name__ == "__main__":
