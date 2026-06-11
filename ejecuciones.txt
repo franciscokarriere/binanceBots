@@ -1,1 +1,12 @@
 caffeinate -i python3 bot_oneMin.py
+
+python3 evaluacionUltimaSemana.py 100
+
+python3 evaluacionUltimaSemana.py 100 2026-05-04 1000 300
+
+
+# desde terminal para conectar a aws. 
+ssh -i "aws-bot-key.pem" ubuntu@52.198.73.194
+
+# ver ejecucion de tmux. 
+tmux attach -t bot

@@ -1,2 +1,7 @@
 .env
 historico_velas.csv
+aws-bot-key.pem
+ejecuciones.txt
+#ignore folder 
+.claude/
+
