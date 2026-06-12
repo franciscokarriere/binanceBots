@@ -19,7 +19,7 @@ exchange = ccxt.binance({
         'defaultType': 'spot',
         'adjustForTimeDifference': True,
     }
-})
+}) 
 
 exchange.load_markets()
 

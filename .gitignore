@@ -1,7 +1,10 @@
 .env
 historico_velas.csv
+historico_velas_fdusd.csv
 aws-bot-key.pem
 ejecuciones.txt
 #ignore folder 
 .claude/
+__pycache__/
+.ipynb_checkpoints/
 

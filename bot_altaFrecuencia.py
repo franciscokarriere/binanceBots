@@ -11,9 +11,11 @@ from dotenv import load_dotenv
 # ==========================================
 load_dotenv(dotenv_path=".env")
 
+# Credenciales propias del Bot 2 (subcuenta aislada). Si no están definidas,
+# usa las generales para no romper entornos sin subcuenta configurada.
 exchange = ccxt.binance({
-    'apiKey': os.getenv('BINANCE_API_KEY'),
-    'secret': os.getenv('BINANCE_SECRET_KEY'),
+    'apiKey': os.getenv('BINANCE_API_KEY_BOT2') or os.getenv('BINANCE_API_KEY'),
+    'secret': os.getenv('BINANCE_SECRET_KEY_BOT2') or os.getenv('BINANCE_SECRET_KEY'),
     'enableRateLimit': True,
     'options': {
         'defaultType': 'spot',
@@ -119,37 +121,60 @@ def hay_senal_compra(df):
     return dip_ok and sobreventa_ok and tendencia_ok
 
 def recuperar_entrada(simbolo):
-    """Devuelve (precio, timestamp_ms) de la última compra registrada en Binance."""
+    """Devuelve (precio, timestamp_ms) de la última compra registrada en Binance.
+
+    Si el BTC no se adquirió en este par (p. ej. llegó comprado vía BTC/USDT o
+    manualmente), reconstruye la entrada desde la pata TP del OCO vigente:
+    precio_entrada = abovePrice / TAKE_PROFIT_PCT. El timestamp de esa orden
+    mantiene operativo el time-stop."""
     try:
         trades = exchange.fetch_my_trades(simbolo, limit=20)
         compras = [t for t in trades if t['side'] == 'buy']
         if compras:
             return compras[-1]['price'], compras[-1]['timestamp']
+
+        for orden in exchange.fetch_open_orders(simbolo):
+            es_tp = orden['side'] == 'sell' and not orden.get('stopPrice') and orden.get('price')
+            if es_tp:
+                return float(orden['price']) / TAKE_PROFIT_PCT, orden.get('timestamp') or 0
     except Exception as e:
         print(f"Error recuperando historial: {e}")
     return 0.0, 0
 
 def colocar_orden_oco(simbolo, cantidad, precio_entrada):
-    tp_price = precio_entrada * TAKE_PROFIT_PCT
-    sl_trigger = precio_entrada * STOP_LOSS_TRIGGER_PCT
-    sl_limit = precio_entrada * STOP_LOSS_LIMIT_PCT
+    # Strings con la precisión exacta del par (la API REST exige decimales válidos)
+    tp = exchange.price_to_precision(simbolo, precio_entrada * TAKE_PROFIT_PCT)
+    sl_trig = exchange.price_to_precision(simbolo, precio_entrada * STOP_LOSS_TRIGGER_PCT)
+    sl_lim = exchange.price_to_precision(simbolo, precio_entrada * STOP_LOSS_LIMIT_PCT)
+    qty = exchange.amount_to_precision(simbolo, cantidad)
+
+    print(f"[!] ENVIANDO PROTOCOLO OCO -> TP: ${tp} | SL: ${sl_trig}")
 
     try:
-        tp_formateado = float(exchange.price_to_precision(simbolo, tp_price))
-        sl_trig_formateado = float(exchange.price_to_precision(simbolo, sl_trigger))
-        sl_lim_formateado = float(exchange.price_to_precision(simbolo, sl_limit))
-        cantidad_formateada = float(exchange.amount_to_precision(simbolo, cantidad))
-
-        print(f"[!] ENVIANDO PROTOCOLO OCO -> TP: ${tp_formateado} | SL: ${sl_trig_formateado}")
-
-        exchange.create_oco_order(
-            symbol=simbolo,
-            side='sell',
-            amount=cantidad_formateada,
-            price=tp_formateado,
-            stopPrice=sl_trig_formateado,
-            stopLimitPrice=sl_lim_formateado
-        )
+        if hasattr(exchange, 'create_oco_order'):
+            # ccxt legado (< 4.x): método unificado
+            exchange.create_oco_order(
+                symbol=simbolo,
+                side='sell',
+                amount=float(qty),
+                price=float(tp),
+                stopPrice=float(sl_trig),
+                stopLimitPrice=float(sl_lim)
+            )
+        else:
+            # ccxt moderno: endpoint implícito POST /api/v3/orderList/oco
+            # Venta OCO: pata superior = TP (LIMIT_MAKER), pata inferior = Stop-Limit
+            exchange.privatePostOrderListOco({
+                'symbol': exchange.market_id(simbolo),
+                'side': 'SELL',
+                'quantity': qty,
+                'aboveType': 'LIMIT_MAKER',
+                'abovePrice': tp,
+                'belowType': 'STOP_LOSS_LIMIT',
+                'belowStopPrice': sl_trig,
+                'belowPrice': sl_lim,
+                'belowTimeInForce': 'GTC',
+            })
         print("Protocolo OCO establecido con éxito en Binance.")
 
     except Exception as e:
@@ -185,15 +210,25 @@ def procesar_mercado(simbolo, df, btc_total, btc_free, fdusd_free):
         precio_entrada, ts_entrada_ms = recuperar_entrada(simbolo)
 
         # Venta anticipada: salir a mercado antes de deteriorar hasta el SL
-        if ts_entrada_ms > 0:
-            minutos_en_posicion = (exchange.milliseconds() - ts_entrada_ms) / 60000
-            if minutos_en_posicion >= TIME_STOP_MINUTOS:
-                venta_anticipada(simbolo)
-                return
+        minutos_en_posicion = (exchange.milliseconds() - ts_entrada_ms) / 60000 if ts_entrada_ms > 0 else 0.0
+        if ts_entrada_ms > 0 and minutos_en_posicion >= TIME_STOP_MINUTOS:
+            venta_anticipada(simbolo)
+            return
 
         if btc_free * precio_actual < MIN_NOTIONAL_FDUSD:
-            pnl_pct = ((precio_actual / precio_entrada) - 1) * 100 if precio_entrada else 0.0
-            print(f"Posición Segura | {btc_total:.6f} BTC en red OCO | PnL flotante: {pnl_pct:+.2f}%")
+            valor_fdusd = btc_total * precio_actual
+            if precio_entrada:
+                pnl_pct = ((precio_actual / precio_entrada) - 1) * 100
+                tp = precio_entrada * TAKE_PROFIT_PCT
+                sl = precio_entrada * STOP_LOSS_TRIGGER_PCT
+                dist_tp_pct = ((tp / precio_actual) - 1) * 100
+                print(f"Posición Segura | {btc_total:.6f} BTC (~{valor_fdusd:.2f} FDUSD) en red OCO | "
+                      f"Px: ${precio_actual:,.2f} | PnL: {pnl_pct:+.2f}% | "
+                      f"TP: ${tp:,.2f} (faltan {dist_tp_pct:+.2f}%) | SL: ${sl:,.2f} | "
+                      f"T-Stop: {minutos_en_posicion:.0f}/{TIME_STOP_MINUTOS} min")
+            else:
+                print(f"Posición Segura | {btc_total:.6f} BTC (~{valor_fdusd:.2f} FDUSD) en red OCO | "
+                      f"Px: ${precio_actual:,.2f} | PnL: n/d (entrada no recuperada del historial)")
             return
         else:
             print("Detectado BTC libre sin protección OCO. Estructurando barreras...")
@@ -213,7 +248,8 @@ def procesar_mercado(simbolo, df, btc_total, btc_free, fdusd_free):
     fase = "ALCISTA" if ema200_ok else "BAJISTA"
     estado = "[ARMADO]" if fase == "ALCISTA" else "[BLOQUEADO]"
 
-    print(f"Dashboard HF | FDUSD: {fdusd_free:.2f} | Macro: {fase} {estado} | Dip: {dip_pct:+.3f}% (req >{DIP_ENTRADA_PCT}%) | RSI: {rsi:.1f} (req <{RSI_MAXIMO})")
+    print(f"Dashboard HF | FDUSD: {fdusd_free:.2f} | Px: ${precio_actual:,.2f} | Macro: {fase} {estado} | "
+          f"Dip: {dip_pct:+.3f}% (req >{DIP_ENTRADA_PCT}%) | RSI: {rsi:.1f} (req <{RSI_MAXIMO})")
 
     if fdusd_free < MIN_NOTIONAL_FDUSD:
         return
