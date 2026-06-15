@@ -39,8 +39,8 @@ STOP_LOSS_LIMIT_PCT = 0.9895    # -1.05%
 TIME_STOP_MINUTOS = 360         # 6 horas
 
 # Filtros de entrada (Reversión a la Media)
-DIP_ENTRADA_PCT = 0.60          # Caída mínima del precio bajo la EMA21
-RSI_MAXIMO = 40                 # Sobreventa de corto plazo confirmada
+DIP_ENTRADA_PCT = 0.30          # Caída mínima del precio bajo la EMA21
+RSI_MAXIMO = 50                 # Sobreventa de corto plazo confirmada
 PENDIENTE_EMA200_VELAS = 60     # La EMA200 debe ser ascendente vs hace 60 velas
 
 VELAS_CACHE = 1500              # Ventana ligera para t3.micro
@@ -151,30 +151,15 @@ def colocar_orden_oco(simbolo, cantidad, precio_entrada):
     print(f"[!] ENVIANDO PROTOCOLO OCO -> TP: ${tp} | SL: ${sl_trig}")
 
     try:
-        if hasattr(exchange, 'create_oco_order'):
-            # ccxt legado (< 4.x): método unificado
-            exchange.create_oco_order(
-                symbol=simbolo,
-                side='sell',
-                amount=float(qty),
-                price=float(tp),
-                stopPrice=float(sl_trig),
-                stopLimitPrice=float(sl_lim)
-            )
-        else:
-            # ccxt moderno: endpoint implícito POST /api/v3/orderList/oco
-            # Venta OCO: pata superior = TP (LIMIT_MAKER), pata inferior = Stop-Limit
-            exchange.privatePostOrderListOco({
-                'symbol': exchange.market_id(simbolo),
-                'side': 'SELL',
-                'quantity': qty,
-                'aboveType': 'LIMIT_MAKER',
-                'abovePrice': tp,
-                'belowType': 'STOP_LOSS_LIMIT',
-                'belowStopPrice': sl_trig,
-                'belowPrice': sl_lim,
-                'belowTimeInForce': 'GTC',
-            })
+        exchange.private_post_order_oco({
+            'symbol': exchange.market_id(simbolo),
+            'side': 'SELL',
+            'quantity': qty,
+            'price': tp,
+            'stopPrice': sl_trig,
+            'stopLimitPrice': sl_lim,
+            'stopLimitTimeInForce': 'GTC',
+        })
         print("Protocolo OCO establecido con éxito en Binance.")
 
     except Exception as e:
@@ -248,7 +233,10 @@ def procesar_mercado(simbolo, df, btc_total, btc_free, fdusd_free):
     fase = "ALCISTA" if ema200_ok else "BAJISTA"
     estado = "[ARMADO]" if fase == "ALCISTA" else "[BLOQUEADO]"
 
-    print(f"Dashboard HF | FDUSD: {fdusd_free:.2f} | Px: ${precio_actual:,.2f} | Macro: {fase} {estado} | "
+    ind_btc   = "[x]" if btc_total * precio_actual > MIN_NOTIONAL_FDUSD else "[o]"
+    ind_fdusd = "[x]" if fdusd_free > MIN_NOTIONAL_FDUSD else "[o]"
+    print(f"Dashboard HF | {ind_btc} BTC: {btc_total:.6f} | {ind_fdusd} FDUSD: {fdusd_free:.2f} | "
+          f"Px: ${precio_actual:,.2f} | Macro: {fase} {estado} | "
           f"Dip: {dip_pct:+.3f}% (req >{DIP_ENTRADA_PCT}%) | RSI: {rsi:.1f} (req <{RSI_MAXIMO})")
 
     if fdusd_free < MIN_NOTIONAL_FDUSD:
