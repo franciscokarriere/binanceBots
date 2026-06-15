@@ -30,6 +30,7 @@ STOP_LOSS_LIMIT_PCT = 0.9930    # -0.70%
 
 UMBRAL_ATR_PCT = 0.25           # Volatilidad mínima exigida
 DISTANCIA_CRUCE_PCT = 0.05      # Brecha mínima entre MAs para confirmar fuerza
+BYPASS_ATR_GAP_PCT = 1.5        # Si el gap supera esto en fase alcista, omite filtro de volatilidad
 
 # ==========================================
 # 2. OBTENCIÓN DE DATOS (CACHÉ LOCAL)
@@ -107,14 +108,15 @@ def colocar_orden_oco(simbolo, cantidad, precio_entrada):
         
         print(f"[!] ENVIANDO PROTOCOLO OCO -> TP: ${tp_formateado} | SL: ${sl_trig_formateado}")
         
-        exchange.create_oco_order(
-            symbol=simbolo,
-            side='sell',
-            amount=cantidad_formateada,
-            price=tp_formateado,
-            stopPrice=sl_trig_formateado,
-            stopLimitPrice=sl_lim_formateado
-        )
+        exchange.private_post_order_oco({
+            'symbol': exchange.market_id(simbolo),
+            'side': 'SELL',
+            'quantity': cantidad_formateada,
+            'price': tp_formateado,
+            'stopPrice': sl_trig_formateado,
+            'stopLimitPrice': sl_lim_formateado,
+            'stopLimitTimeInForce': 'GTC',
+        })
         print("Protocolo OCO establecido con éxito en Binance.")
         
     except Exception as e:
@@ -125,16 +127,20 @@ def procesar_mercado(simbolo, df, btc_total, btc_free, usdt_free):
     ultima_rapida = df['SMA_rapida'].iloc[-1]
     ultima_lenta = df['SMA_lenta'].iloc[-1]
     ultimo_atr = df['ATR_pct'].iloc[-1]
-    
+
     if pd.isna(ultima_lenta): return
-    
+
+    ind_btc  = "[x]" if btc_total > 0.0001 else "[o]"
+    ind_usdt = "[x]" if usdt_free  > 1.0    else "[o]"
+    saldos = f"{ind_btc} BTC: {btc_total:.6f} | {ind_usdt} USDT: {usdt_free:.2f}"
+
     # A. ESCENARIO CON ACTIVOS (Gestión de OCO)
     if btc_total > 0.0001:
         if btc_free < 0.0001:
-            print(f"Posición Segura | {btc_total:.6f} BTC delegados a red OCO de Binance.")
+            print(f"Dashboard | {saldos} | Posición Segura (OCO activo)")
             return
         else:
-            print("Detectado BTC libre sin protección OCO. Estructurando barreras...")
+            print(f"Dashboard | {saldos} | BTC libre sin OCO — estructurando barreras...")
             precio_entrada = recuperar_precio_entrada(simbolo)
             if precio_entrada == 0.0: precio_entrada = precio_actual
             colocar_orden_oco(simbolo, btc_free, precio_entrada)
@@ -142,15 +148,21 @@ def procesar_mercado(simbolo, df, btc_total, btc_free, usdt_free):
 
     # B. ESCENARIO LIQUIDEZ (Filtros y Telemetría)
     else:
-        # Variables de telemetría visual
         fase = "ALCISTA" if ultima_rapida > ultima_lenta else "BAJISTA"
-        estado_vol = "[OK]" if ultimo_atr >= UMBRAL_ATR_PCT else "[BLOQUEADO]"
         gap_actual_pct = ((ultima_rapida - ultima_lenta) / ultima_lenta) * 100
+        tendencia_fuerte = (ultima_rapida > ultima_lenta) and (gap_actual_pct >= BYPASS_ATR_GAP_PCT)
+        if ultimo_atr >= UMBRAL_ATR_PCT:
+            estado_vol = "[OK]"
+        elif tendencia_fuerte:
+            estado_vol = "[BYPASS-TENDENCIA]"
+        else:
+            estado_vol = "[BLOQUEADO]"
+
+        print(f"Dashboard | {saldos} | Fase: {fase} | Gap: {gap_actual_pct:.3f}% | Vol: {ultimo_atr:.3f}% {estado_vol}")
         
-        print(f"Dashboard | USDT: {usdt_free:.2f} | Fase: {fase} | Gap: {gap_actual_pct:.3f}% | Vol: {ultimo_atr:.3f}% {estado_vol}")
-        
-        # Filtro 1: Volatilidad
-        if ultimo_atr < UMBRAL_ATR_PCT:
+        # Filtro 1: Volatilidad (bypass si la tendencia alcista ya es muy pronunciada)
+        tendencia_fuerte = (ultima_rapida > ultima_lenta) and (gap_actual_pct >= BYPASS_ATR_GAP_PCT)
+        if ultimo_atr < UMBRAL_ATR_PCT and not tendencia_fuerte:
             return
             
         # Filtro 2: Cruce de Medias
