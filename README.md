@@ -4,13 +4,13 @@
 
 Este repositorio contiene dos bots de trading automatizado que operan en el mercado Spot de Binance sobre pares aislados (sin colisión de liquidez entre ellos). Ambos comparten la misma filosofía: arquitectura de "Estado Desacoplado con Amnesia Reactiva" (la lógica de entrada es independiente de la de salida), evaluación con velas de 1 minuto vía caché local, y delegación de la salida al motor de emparejamiento de Binance mediante órdenes **OCO (One-Cancels-the-Other)**.
 
-| | Bot 1 | Bot 2 |
-|---|---|---|
-| Archivo | `bot_oneMin.py` | `bot_altaFrecuencia.py` |
-| Par | BTC/USDT | BTC/FDUSD |
-| Estrategia | Trend Following (V4.1) | Reversión a la Media (V2) |
-| Ciclo de escaneo | 60 s | 15 s |
-| Caché de velas | `historico_velas.csv` (5000) | `historico_velas_fdusd.csv` (1500) |
+|                  | Bot 1                        | Bot 2                              |
+| ---------------- | ---------------------------- | ---------------------------------- |
+| Archivo          | `bot_oneMin.py`              | `bot_altaFrecuencia.py`            |
+| Par              | BTC/USDT                     | BTC/FDUSD                          |
+| Estrategia       | Trend Following (V4.1)       | Reversión a la Media (V2)          |
+| Ciclo de escaneo | 60 s                         | 15 s                               |
+| Caché de velas   | `historico_velas.csv` (5000) | `historico_velas_fdusd.csv` (1500) |
 
 ---
 
@@ -155,12 +155,7 @@ pip install ccxt pandas python-dotenv
 
 # Ejecutar con el venv activo
 python3 bot_altaFrecuencia.py
-```
 
-Para tmux o el script watchdog, donde activar el venv es incómodo, se puede invocar el binario del venv directamente sin activarlo:
-
-```bash
-venv/bin/python3 -u bot_altaFrecuencia.py
 ```
 
 Checklist tras un despliegue nuevo en el servidor:
@@ -168,3 +163,122 @@ Checklist tras un despliegue nuevo en el servidor:
 1. El archivo `.env` existe en la carpeta del bot (`ls -a`) — no viaja con `scp *.py`.
 2. La IP pública de la instancia EC2 está en la whitelist de **ambas** API keys (principal y subcuenta); si no, Binance responde con el error `-2015`.
 3. Las dependencias quedaron en el venv: `venv/bin/pip show ccxt`.
+
+---
+
+## Operación Autónoma en Producción (AWS EC2)
+
+### Scripts de arranque con auto-reinicio
+
+Cada bot tiene un script shell que lo mantiene vivo: si el proceso Python cae por cualquier motivo (error de red, excepción no capturada, etc.), el script lo reinicia automáticamente en 15 segundos.
+
+**`start_onemin.sh`**
+```bash
+#!/bin/bash
+cd /home/ubuntu/robotbinance
+source venv/bin/activate
+while true; do
+    python3 bot_oneMin.py
+    echo "[$(date)] Bot oneMin detenido. Reiniciando en 15s..."
+    sleep 15
+done
+```
+
+**`start_altafrecuencia.sh`**
+```bash
+#!/bin/bash
+cd /home/ubuntu/robotbinance
+source venv/bin/activate
+while true; do
+    python3 bot_altaFrecuencia.py
+    echo "[$(date)] Bot altaFrecuencia detenido. Reiniciando en 15s..."
+    sleep 15
+done
+```
+
+Hacerlos ejecutables (solo la primera vez):
+```bash
+chmod +x ~/robotbinance/start_onemin.sh
+chmod +x ~/robotbinance/start_altafrecuencia.sh
+```
+
+---
+
+### tmux — Uso para supervisión y arranque manual
+
+Cada bot corre en su propia sesión tmux nombrada. Esto permite desconectarse del SSH sin detener los procesos.
+
+```bash
+# Ver sesiones activas
+tmux ls
+
+# Crear e iniciar bot_oneMin
+tmux new-session -d -s onemin '/home/ubuntu/robotbinance/start_onemin.sh'
+
+# Crear e iniciar bot_altaFrecuencia
+tmux new-session -d -s altafrecuencia '/home/ubuntu/robotbinance/start_altafrecuencia.sh'
+
+# Entrar a revisar un bot (se queda en tiempo real)
+tmux attach -t onemin
+tmux attach -t altafrecuencia
+
+# Salir sin matar el proceso (detach)
+Ctrl+B  luego  D
+
+# Matar una sesión si es necesario
+tmux kill-session -t onemin
+```
+
+#### Checklist de supervisión antes de dejar correr sin vigilancia
+
+Observar al menos 5–10 ciclos de cada bot después de un arranque o actualización:
+
+| Verificación | Bot 1 (oneMin) | Bot 2 (altaFrecuencia) |
+|---|---|---|
+| Dashboard imprime sin errores Python | ✓ | ✓ |
+| Indicadores [x]/[o] muestran el saldo correcto | ✓ | ✓ |
+| Estado esperado según mercado | `OCO activo` o `BYPASS-TENDENCIA` | `[ARMADO]` o `[BLOQUEADO]` |
+| No aparece `[COOLDOWN-SL]` repetido cada ciclo | ✓ | — |
+| No se ve `Fallo crítico` ni `Error` en los últimos ciclos | ✓ | ✓ |
+
+Si todo lo anterior está limpio durante 10 minutos consecutivos, es seguro desconectarse.
+
+---
+
+### Crontab — Arranque automático tras reinicio de instancia
+
+El crontab garantiza que ambos bots y el auditor arranquen solos si AWS reinicia la instancia (mantenimiento, actualización de hipervisor, etc.).
+
+```bash
+# Editar el crontab del usuario ubuntu
+crontab -e
+```
+
+Contenido completo del crontab:
+```
+# Arranque automático de bots tras reinicio de instancia
+@reboot tmux new-session -d -s onemin '/home/ubuntu/robotbinance/start_onemin.sh'
+@reboot tmux new-session -d -s altafrecuencia '/home/ubuntu/robotbinance/start_altafrecuencia.sh'
+
+# Extracción diaria del auditor (medianoche UTC)
+0 0 * * * /bin/bash -c 'cd /home/ubuntu/robotbinance && source venv/bin/activate && python3 auditorExtract.py >> /home/ubuntu/robotbinance/auditor_cron.log 2>&1'
+```
+
+Verificar que quedó guardado:
+```bash
+crontab -l
+```
+
+Ver el log del auditor automático:
+```bash
+cat ~/robotbinance/auditor_cron.log
+```
+
+#### Mecanismos de resiliencia por capa
+
+| Situación | Mecanismo que responde |
+|---|---|
+| El archivo `.py` cae por excepción | `while true` en el script `.sh` — reinicia en 15s |
+| La instancia AWS se reinicia | `@reboot` en crontab — levanta todo solo |
+| Te desconectás del SSH | tmux `-d` — el proceso sigue corriendo |
+| Querés ver qué pasó mientras no estabas | `tmux attach -t nombre` |
