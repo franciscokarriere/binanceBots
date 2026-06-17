@@ -31,6 +31,7 @@ STOP_LOSS_LIMIT_PCT = 0.9930    # -0.70%
 UMBRAL_ATR_PCT = 0.25           # Volatilidad mínima exigida
 DISTANCIA_CRUCE_PCT = 0.05      # Brecha mínima entre MAs para confirmar fuerza
 BYPASS_ATR_GAP_PCT = 1.5        # Si el gap supera esto en fase alcista, omite filtro de volatilidad
+COOLDOWN_SL_MINUTOS = 45        # Minutos de espera tras un Stop Loss antes de volver a comprar
 
 # ==========================================
 # 2. OBTENCIÓN DE DATOS (CACHÉ LOCAL)
@@ -95,6 +96,23 @@ def recuperar_precio_entrada(simbolo):
         print(f"Error recuperando historial: {e}")
     return 0.0
 
+def detectar_sl_reciente(simbolo):
+    """Devuelve el timestamp (ms) del último SL si fue más reciente que el último BUY, o None."""
+    try:
+        trades = exchange.fetch_my_trades(simbolo, limit=20)
+        ventas  = [t for t in trades if t['side'] == 'sell']
+        compras = [t for t in trades if t['side'] == 'buy']
+        if not ventas or not compras:
+            return None
+        ultima_venta  = max(ventas,  key=lambda t: t['timestamp'])
+        ultima_compra = max(compras, key=lambda t: t['timestamp'])
+        if (ultima_venta['timestamp'] > ultima_compra['timestamp'] and
+                ultima_venta['price'] < ultima_compra['price']):
+            return ultima_venta['timestamp']
+    except Exception as e:
+        print(f"Error detectando SL reciente: {e}")
+    return None
+
 def colocar_orden_oco(simbolo, cantidad, precio_entrada):
     tp_price = precio_entrada * TAKE_PROFIT_PCT
     sl_trigger = precio_entrada * STOP_LOSS_TRIGGER_PCT
@@ -158,8 +176,17 @@ def procesar_mercado(simbolo, df, btc_total, btc_free, usdt_free):
         else:
             estado_vol = "[BLOQUEADO]"
 
+        # Cooldown post-SL
+        ts_sl = detectar_sl_reciente(simbolo)
+        if ts_sl:
+            minutos_desde_sl = (exchange.milliseconds() - ts_sl) / 60000
+            if minutos_desde_sl < COOLDOWN_SL_MINUTOS:
+                restantes = int(COOLDOWN_SL_MINUTOS - minutos_desde_sl)
+                print(f"Dashboard | {saldos} | Fase: {fase} | Gap: {gap_actual_pct:.3f}% | Vol: {ultimo_atr:.3f}% [COOLDOWN-SL: {restantes}min]")
+                return
+
         print(f"Dashboard | {saldos} | Fase: {fase} | Gap: {gap_actual_pct:.3f}% | Vol: {ultimo_atr:.3f}% {estado_vol}")
-        
+
         # Filtro 1: Volatilidad (bypass si la tendencia alcista ya es muy pronunciada)
         tendencia_fuerte = (ultima_rapida > ultima_lenta) and (gap_actual_pct >= BYPASS_ATR_GAP_PCT)
         if ultimo_atr < UMBRAL_ATR_PCT and not tendencia_fuerte:

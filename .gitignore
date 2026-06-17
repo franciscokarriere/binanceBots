@@ -1,6 +1,9 @@
 .env
 historico_velas.csv
 historico_velas_fdusd.csv
+registro_trades.csv
+registro_snapshots.csv
+
 aws-bot-key.pem
 ejecuciones.txt
 #ignore folder 
