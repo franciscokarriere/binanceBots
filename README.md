@@ -260,6 +260,12 @@ Contenido completo del crontab:
 @reboot tmux new-session -d -s onemin '/home/ubuntu/robotbinance/start_onemin.sh'
 @reboot tmux new-session -d -s altafrecuencia '/home/ubuntu/robotbinance/start_altafrecuencia.sh'
 
+# Watchdog: levanta la sesión tmux si murió sin reinicio de instancia (caída de proceso, kill accidental, etc.)
+# tmux has-session retorna 0 si existe; el || solo dispara new-session si no existe.
+# Tiempo máximo de caída sin watchdog → máximo 5 minutos con watchdog.
+*/5 * * * * /bin/bash -c 'tmux has-session -t onemin 2>/dev/null || tmux new-session -d -s onemin "/home/ubuntu/robotbinance/start_onemin.sh"'
+*/5 * * * * /bin/bash -c 'tmux has-session -t altafrecuencia 2>/dev/null || tmux new-session -d -s altafrecuencia "/home/ubuntu/robotbinance/start_altafrecuencia.sh"'
+
 # Extracción diaria del auditor (medianoche UTC)
 0 0 * * * /bin/bash -c 'cd /home/ubuntu/robotbinance && source venv/bin/activate && python3 auditorExtract.py >> /home/ubuntu/robotbinance/auditor_cron.log 2>&1'
 ```
@@ -279,6 +285,7 @@ cat ~/robotbinance/auditor_cron.log
 | Situación | Mecanismo que responde |
 |---|---|
 | El archivo `.py` cae por excepción | `while true` en el script `.sh` — reinicia en 15s |
+| La sesión tmux muere sin reinicio (kill accidental, fallo del proceso shell) | Watchdog `*/5` en crontab — detecta la ausencia y la recrea; máximo 5 min caído |
 | La instancia AWS se reinicia | `@reboot` en crontab — levanta todo solo |
 | Te desconectás del SSH | tmux `-d` — el proceso sigue corriendo |
 | Querés ver qué pasó mientras no estabas | `tmux attach -t nombre` |
