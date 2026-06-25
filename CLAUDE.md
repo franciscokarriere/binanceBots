@@ -249,19 +249,24 @@ aprendizaje sobre bots e infraestructura, con capital real pero acotado.
 
 ### 1. Informe de estado al terminar cada petición
 
-Después de cualquier modificación o trabajo con archivos, entregar siempre un informe
-que incluya:
+Después de cualquier modificación o trabajo con archivos, entregar un informe con:
 
 - **Qué se hizo:** lista de archivos modificados/creados y cambio principal en cada uno.
 - **Qué quedó pendiente** (si lo hay): lo que no se completó y por qué.
-- **Próximo paso sugerido** (opcional): solo si es obvio y relevante.
 
 El informe debe ser breve. No repetir el código ni explicar lo que el diff ya muestra.
 
-### 2. Commit y push al validar un cambio
+Al final del informe, indicar claramente que se espera confirmación explícita para commitear:
 
-Cuando el usuario confirme que el cambio está bien (respuesta explícita de OK / validación),
-ejecutar la siguiente secuencia en orden:
+> _Escribí **"si confirmo"** para hacer el commit y push._
+
+### 2. Commit y push — solo con confirmación explícita
+
+El commit y push se ejecutan **únicamente** cuando el usuario escribe `si confirmo`
+(o una frase equivalente inequívoca). Cualquier otra respuesta — preguntas, sugerencias,
+"ok", "bien", "sí" suelto — **no** dispara el commit.
+
+Secuencia al recibir la confirmación:
 
 ```bash
 # 1. Agregar solo los archivos trabajados en la petición (nunca git add -A sin revisión)
@@ -282,8 +287,17 @@ git remote -v && git push   # solo si hay remote; si no, omitir silenciosamente
 - Si el cambio afecta varios archivos con lógicas distintas, usar un segundo párrafo
   de descripción separado por línea en blanco.
 
-**No hacer commit** si el usuario no validó explícitamente, o si hay cambios sin
+**No hacer commit** si el usuario no escribió `si confirmo`, o si hay cambios sin
 guardar / incompletos en otros archivos del mismo contexto.
+
+### 3. Propuesta de siguiente paso — solo después del push
+
+Una vez completado el push exitosamente, y solo entonces, proponer un ítem concreto
+de las tareas pendientes en `docs/context.md` o de la tabla de Deuda técnica activa.
+
+- Una sola propuesta, la más relevante en ese momento.
+- No proponer si el usuario ya indicó qué sigue.
+- Si no hay nada pendiente relevante, omitir esta sección.
 
 ## Deuda técnica activa
 
@@ -305,3 +319,4 @@ solo sirven para dar contexto al agente sobre el rumbo del proyecto.
 - [2026-06-25] (menor) Actualizar sección Stack, Comandos, Reglas críticas y Flags para reflejar el estado real del código (FAIL_CLOSED OFF, sin modo PAPER, ccxt 4.x, comandos correctos).
 - [2026-06-25] (menor) Añadir sección Deuda técnica activa y ajustar Zonas intocables (CSV, .log, .env dual).
 - [2026-06-25] (menor) Añadir sección Flujo de trabajo: informe de estado por petición + commit/push al validar.
+- [2026-06-25] (menor) Flujo de trabajo: confirmación explícita "si confirmo" requerida para commit/push; propuesta de siguiente paso solo después del push.
