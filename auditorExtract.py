@@ -1,4 +1,5 @@
 import ccxt
+import gc
 import pandas as pd
 import os
 from datetime import datetime, timezone
@@ -25,9 +26,9 @@ exchange_bot2 = ccxt.binance({
 ARCHIVO_TRADES    = 'registro_trades.csv'
 ARCHIVO_SNAPSHOTS = 'registro_snapshots.csv'
 
-# Cantidad de trades a consultar por cuenta. 40 cubre ~20 ciclos completos,
-# suficiente para evaluar ventanas de 15 días con Bot2 operando 1-2 veces por día.
-LIMITE_TRADES = 40
+# Cantidad de trades a consultar por cuenta. 20 cubre ~10 ciclos completos.
+# Valor conservador para no causar OOM en t3.micro (1GB RAM, dos bots ya activos).
+LIMITE_TRADES = 20
 
 # Parámetros activos de cada bot — actualizar aquí al cambiar el código del bot.
 # Se imprimen en cada snapshot para mantener trazabilidad en el log.
@@ -149,11 +150,14 @@ def guardar_snapshot(ts_extraccion):
         btc_p   = bal_p.get('BTC',  {}).get('total', 0.0)
         usdt_p  = bal_p.get('USDT', {}).get('total', 0.0)
         valor_p = round(btc_p * precio_btc + usdt_p, 4)
+        del bal_p
 
         bal_s   = exchange_bot2.fetch_balance()
         btc_s   = bal_s.get('BTC',   {}).get('total', 0.0)
         fdusd_s = bal_s.get('FDUSD', {}).get('total', 0.0)
         valor_s = round(btc_s * precio_btc + fdusd_s, 4)
+        del bal_s
+        gc.collect()
 
         fila = {
             'ts_extraccion'      : ts_extraccion,
@@ -272,6 +276,8 @@ if __name__ == "__main__":
 
     ciclos_p = calcular_pnl_ciclos(raw_p)
     ciclos_s = calcular_pnl_ciclos(raw_s)
+    del raw_p, raw_s
+    gc.collect()
 
     if snap:
         imprimir_resumen(snap, nuevos_p, nuevos_s, ciclos_p, ciclos_s)
