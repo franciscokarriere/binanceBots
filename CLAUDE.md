@@ -256,7 +256,13 @@ Después de cualquier modificación o trabajo con archivos, entregar un informe 
 
 El informe debe ser breve. No repetir el código ni explicar lo que el diff ya muestra.
 
-Al final del informe, indicar claramente que se espera confirmación explícita para commitear:
+Si el cambio es código ejecutable (bots, extractor, auditor), agregar antes de pedir
+confirmación:
+
+> _Antes de commitear: copiá el archivo al servidor y hacé una corrida manual para
+> verificar que funciona. Cuando estés listo, escribí **"si confirmo"** para el commit y push._
+
+Si el cambio es solo documentación (CLAUDE.md, context.md), pedir confirmación directamente:
 
 > _Escribí **"si confirmo"** para hacer el commit y push._
 
@@ -320,3 +326,4 @@ solo sirven para dar contexto al agente sobre el rumbo del proyecto.
 - [2026-06-25] (menor) Añadir sección Deuda técnica activa y ajustar Zonas intocables (CSV, .log, .env dual).
 - [2026-06-25] (menor) Añadir sección Flujo de trabajo: informe de estado por petición + commit/push al validar.
 - [2026-06-25] (menor) Flujo de trabajo: confirmación explícita "si confirmo" requerida para commit/push; propuesta de siguiente paso solo después del push.
+- [2026-06-25] (menor) Flujo de trabajo: agregar paso de prueba en servidor antes de pedir confirmación cuando el cambio es código ejecutable.
