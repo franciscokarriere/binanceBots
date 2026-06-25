@@ -131,7 +131,43 @@ Cuando `DOCSTRINGS = OFF`: comentarios solo donde la lógica no sea evidente.
 
 ---
 
-## 4. Convenciones de código (base)
+## 4. Trazabilidad — qué parte del sistema generó qué resultado
+
+Toda salida del sistema (log, print, reporte, análisis) debe dejar claro **quién la generó**
+para poder corregir o mejorar ese componente de forma precisa.
+
+### En el código
+
+Cada mensaje de log o error debe incluir su origen:
+
+```python
+# Bien — se sabe exactamente qué bot y qué función fallaron
+print(f"[bot_altaFrecuencia] [colocar_orden_oco] Fallo crítico: {e}")
+
+# Mal — no se sabe qué generó el error
+print(f"Fallo crítico: {e}")
+```
+
+Regla: todo `print` dentro de un `except` lleva `[nombre_archivo]` + `[nombre_función]`
+como prefijo. Los prints de estado del dashboard (ciclo normal) pueden omitirlo si el
+contexto ya es claro (ej. el dashboard del Bot 2 ya dice "Dashboard HF").
+
+### En reportes y análisis (conversación)
+
+Cuando se analice un resultado, problema o métrica, siempre atribuirlo al componente
+específico que lo produce:
+
+- No: "el sistema está perdiendo dinero"
+- Sí: "`bot_altaFrecuencia.py` — ciclos Bot2 BTC/FDUSD: 5W/2L, neto −0.65% bajo config
+  TP +0.70% / SL −1.00% (antes del ajuste del 2026-06-25)"
+
+Esto aplica también al `auditorExtract.py`: cada bloque de ciclos ya está etiquetado
+por bot y par (`Bot1 BTC/USDT`, `Bot2 BTC/FDUSD`) con los parámetros activos impresos.
+Si se agregan nuevos módulos, deben seguir el mismo patrón.
+
+---
+
+## 4.1. Convenciones de código (base)
 
 - Nombres descriptivos; nada de `tmp`, `data2`, `x` salvo índices triviales.
 - Funciones cortas y con una sola responsabilidad.
@@ -327,3 +363,4 @@ solo sirven para dar contexto al agente sobre el rumbo del proyecto.
 - [2026-06-25] (menor) Añadir sección Flujo de trabajo: informe de estado por petición + commit/push al validar.
 - [2026-06-25] (menor) Flujo de trabajo: confirmación explícita "si confirmo" requerida para commit/push; propuesta de siguiente paso solo después del push.
 - [2026-06-25] (menor) Flujo de trabajo: agregar paso de prueba en servidor antes de pedir confirmación cuando el cambio es código ejecutable.
+- [2026-06-25] (menor) Añadir sección 4 de Trazabilidad: todo log/reporte/análisis debe identificar el componente que lo genera.
