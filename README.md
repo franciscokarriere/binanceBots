@@ -1,5 +1,19 @@
 # Algoritmos Cuantitativos de Trading — Binance Spot
 
+## Licencia
+
+Distribuido bajo la **GNU General Public License v3.0**. Ver el archivo [LICENSE](LICENSE) para más detalles.
+
+## Contacto y Colaboración
+
+Este proyecto es un **experimento de aprendizaje** sobre manejo de bots de trading
+y configuración de infraestructura en servidores. Para cualquier colaboración,
+puedes contactarme en: **contact@karrierefran.com**
+
+> ⚠️ **Descargo de responsabilidad:** Este software se proporciona "tal cual", sin
+> garantías de ningún tipo. El trading de criptomonedas conlleva riesgo de pérdida
+> de capital. Úsalo bajo tu propia responsabilidad.
+
 ## Descripción General
 
 Este repositorio contiene dos bots de trading automatizado que operan en el mercado Spot de Binance sobre pares aislados (sin colisión de liquidez entre ellos). Ambos comparten la misma filosofía: arquitectura de "Estado Desacoplado con Amnesia Reactiva" (la lógica de entrada es independiente de la de salida), evaluación con velas de 1 minuto vía caché local, y delegación de la salida al motor de emparejamiento de Binance mediante órdenes **OCO (One-Cancels-the-Other)**.
@@ -173,6 +187,7 @@ Checklist tras un despliegue nuevo en el servidor:
 Cada bot tiene un script shell que lo mantiene vivo: si el proceso Python cae por cualquier motivo (error de red, excepción no capturada, etc.), el script lo reinicia automáticamente en 15 segundos.
 
 **`start_onemin.sh`**
+
 ```bash
 #!/bin/bash
 cd /home/ubuntu/robotbinance
@@ -185,6 +200,7 @@ done
 ```
 
 **`start_altafrecuencia.sh`**
+
 ```bash
 #!/bin/bash
 cd /home/ubuntu/robotbinance
@@ -197,6 +213,7 @@ done
 ```
 
 Hacerlos ejecutables (solo la primera vez):
+
 ```bash
 chmod +x ~/robotbinance/start_onemin.sh
 chmod +x ~/robotbinance/start_altafrecuencia.sh
@@ -233,13 +250,13 @@ tmux kill-session -t onemin
 
 Observar al menos 5–10 ciclos de cada bot después de un arranque o actualización:
 
-| Verificación | Bot 1 (oneMin) | Bot 2 (altaFrecuencia) |
-|---|---|---|
-| Dashboard imprime sin errores Python | ✓ | ✓ |
-| Indicadores [x]/[o] muestran el saldo correcto | ✓ | ✓ |
-| Estado esperado según mercado | `OCO activo` o `BYPASS-TENDENCIA` | `[ARMADO]` o `[BLOQUEADO]` |
-| No aparece `[COOLDOWN-SL]` repetido cada ciclo | ✓ | — |
-| No se ve `Fallo crítico` ni `Error` en los últimos ciclos | ✓ | ✓ |
+| Verificación                                              | Bot 1 (oneMin)                    | Bot 2 (altaFrecuencia)     |
+| --------------------------------------------------------- | --------------------------------- | -------------------------- |
+| Dashboard imprime sin errores Python                      | ✓                                 | ✓                          |
+| Indicadores [x]/[o] muestran el saldo correcto            | ✓                                 | ✓                          |
+| Estado esperado según mercado                             | `OCO activo` o `BYPASS-TENDENCIA` | `[ARMADO]` o `[BLOQUEADO]` |
+| No aparece `[COOLDOWN-SL]` repetido cada ciclo            | ✓                                 | —                          |
+| No se ve `Fallo crítico` ni `Error` en los últimos ciclos | ✓                                 | ✓                          |
 
 Si todo lo anterior está limpio durante 10 minutos consecutivos, es seguro desconectarse.
 
@@ -255,6 +272,7 @@ crontab -e
 ```
 
 Contenido completo del crontab:
+
 ```
 # Arranque automático de bots tras reinicio de instancia
 @reboot tmux new-session -d -s onemin '/home/ubuntu/robotbinance/start_onemin.sh'
@@ -271,21 +289,23 @@ Contenido completo del crontab:
 ```
 
 Verificar que quedó guardado:
+
 ```bash
 crontab -l
 ```
 
 Ver el log del auditor automático:
+
 ```bash
 cat ~/robotbinance/auditor_cron.log
 ```
 
 #### Mecanismos de resiliencia por capa
 
-| Situación | Mecanismo que responde |
-|---|---|
-| El archivo `.py` cae por excepción | `while true` en el script `.sh` — reinicia en 15s |
+| Situación                                                                    | Mecanismo que responde                                                          |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| El archivo `.py` cae por excepción                                           | `while true` en el script `.sh` — reinicia en 15s                               |
 | La sesión tmux muere sin reinicio (kill accidental, fallo del proceso shell) | Watchdog `*/5` en crontab — detecta la ausencia y la recrea; máximo 5 min caído |
-| La instancia AWS se reinicia | `@reboot` en crontab — levanta todo solo |
-| Te desconectás del SSH | tmux `-d` — el proceso sigue corriendo |
-| Querés ver qué pasó mientras no estabas | `tmux attach -t nombre` |
+| La instancia AWS se reinicia                                                 | `@reboot` en crontab — levanta todo solo                                        |
+| Te desconectás del SSH                                                       | tmux `-d` — el proceso sigue corriendo                                          |
+| Querés ver qué pasó mientras no estabas                                      | `tmux attach -t nombre`                                                         |
