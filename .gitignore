@@ -6,6 +6,7 @@ registro_snapshots.csv
 
 aws-bot-key.pem
 ejecuciones.txt
+*.log
 #ignore folder 
 .claude/
 __pycache__/

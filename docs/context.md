@@ -11,8 +11,8 @@ Dos bots en producción en AWS EC2 (t3.micro, Ubuntu), corriendo en sesiones tmu
 
 | Bot | Archivo | Par | Sesión tmux | Estado |
 |---|---|---|---|---|
-| Bot 1 (macro) | `bot_oneMin.py` | BTC/USDT | `bot_macro` | Activo — SMA trend-following |
-| Bot 2 (micro) | `bot_altaFrecuencia.py` | BTC/FDUSD | `bot_micro` | Activo — reversión a la media |
+| Bot 1 | `bot_oneMin.py` | BTC/USDT | `onemin` | Activo — SMA trend-following |
+| Bot 2 | `bot_altaFrecuencia.py` | BTC/FDUSD | `altafrecuencia` | Activo — reversión a la media |
 
 Portafolio total en la última extracción conocida: **~$40 USD** (registro_snapshots.csv).
 
@@ -76,8 +76,8 @@ historico_velas_fdusd.csv — Caché local de velas BTC/FDUSD (en .gitignore)
 
 **Parámetros clave:**
 - `TAKE_PROFIT_PCT = 1.0070` → TP +0.70%
-- `STOP_LOSS_TRIGGER_PCT = 0.9900` → SL trigger −1.00% (barrera de catástrofe)
-- `STOP_LOSS_LIMIT_PCT = 0.9895` → SL limit −1.05%
+- `STOP_LOSS_TRIGGER_PCT = 0.9950` → SL trigger −0.50% (ajustado el 2026-06-25 desde −1.00%)
+- `STOP_LOSS_LIMIT_PCT = 0.9945` → SL limit −0.55% (mantiene gap de 0.05% sobre el trigger)
 - `TIME_STOP_MINUTOS = 360` — si en 6h no toca el TP, vende a mercado (venta anticipada)
 - `DIP_ENTRADA_PCT = 0.30` — caída mínima del precio bajo EMA21 (⚠️ ver nota abajo)
 - `RSI_MAXIMO = 50` — RSI máximo para confirmar sobreventa (⚠️ ver nota abajo)
@@ -142,9 +142,9 @@ El `.env` está en `.gitignore`. Si `BINANCE_API_KEY_BOT2` no está definida, `b
 - **Servidor:** AWS EC2 t3.micro, Ubuntu — IP: `52.198.73.194`
 - **Conexión:** `ssh -i "aws-bot-key.pem" ubuntu@52.198.73.194`
 - **Bots en tmux:**
-  - `bot_macro` → `python3 bot_oneMin.py`
-  - `bot_micro` → `python3 bot_altaFrecuencia.py`
-  - Reconectar: `tmux attach -t bot_macro` / `tmux attach -t bot_micro`
+  - `onemin` → `python3 bot_oneMin.py`
+  - `altafrecuencia` → `python3 bot_altaFrecuencia.py`
+  - Reconectar: `tmux attach -t onemin` / `tmux attach -t altafrecuencia`
 - **Crontab en EC2:** watchdog cada 5 minutos que relanza sesiones tmux caídas (sin reboot). También corre `auditorExtract.py` periódicamente.
 - **Local (mac):** `caffeinate -i python3 bot_oneMin.py` para pruebas sin que el mac duerma.
 
@@ -154,6 +154,7 @@ El `.env` está en `.gitignore`. Si `BINANCE_API_KEY_BOT2` no está definida, `b
 
 - [x] ~~**`bot_oneMin.py` (Bot 1) — bug OCO `create_oco_order`**~~ → Corregido en commit `81475e7`.
 - [x] ~~**Licencia GPLv3**~~ → Añadida en commit `67f1e52`.
+- [x] ~~**Ajuste SL Bot 2**~~ → `STOP_LOSS_TRIGGER_PCT` reducido de −1.00% a −0.50% el 2026-06-25. Motivación: break-even winrate bajó de 70.6% a 58.3% según análisis del auditor_cron.log. Correr ~15 días antes de evaluar el impacto.
 - [ ] **Validar parámetros de entrada Bot 2:** DIP_ENTRADA_PCT=0.30% y RSI_MAXIMO=50 son más relajados que el backtest original (0.60% / 40). Correr el simulador de Bot 2 (si existe) o construir uno para validar.
 - [ ] **No existe backtester para Bot 2** — el simulador que se mencionó en la sesión de creación no está en el repo principal. Si se quiere evaluar la estrategia de reversión antes de ajustar parámetros, hay que construirlo o trasladarlo.
 - [ ] **Idempotencia de órdenes:** ningún bot usa `clientOrderId`. Si el bot se reinicia justo después de enviar una compra pero antes de leer la respuesta, podría no detectar la orden. Bajo FAIL_CLOSED estricto esto es un riesgo menor pero real.

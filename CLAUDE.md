@@ -239,7 +239,7 @@ aprendizaje sobre bots e infraestructura, con capital real pero acotado.
 - Extraer CSV acumulativo: `python3 auditorExtract.py`
 - Backtest Bot 1: `python3 evaluacionUltimaSemana.py <monto> <fecha_inicio> <ma_lenta> <ma_rapida>`
 - Conectar a producción (AWS): `ssh -i "aws-bot-key.pem" ubuntu@52.198.73.194`
-- Ver bots en producción: `tmux attach -t bot_macro` / `tmux attach -t bot_micro`
+- Ver bots en producción: `tmux attach -t onemin` / `tmux attach -t altafrecuencia`
 - Dry run (solo lectura): ejecutar `bot_daemonDR()` en `dryRun.py`
 
 > No existe modo paper/sandbox. Los bots ejecutan órdenes reales en Binance Spot desde
@@ -306,7 +306,7 @@ solo sirven para dar contexto al agente sobre el rumbo del proyecto.
 
 | # | Qué falta | Prioridad | Notas |
 |---|---|---|---|
-| 1 | **Bot de Telegram para alertas** | Alta | Los `except` actuales imprimen a stdout/log. El siguiente paso es enviar los errores críticos (fallo de OCO, venta anticipada, error de red prolongado) a un canal de Telegram. Sustituirá/complementará el monitoreo por tmux. |
+| 1 | **Bot de Telegram para alertas** | Alta | Los `except` actuales imprimen a stdout/log. Enviar a Telegram los errores críticos: fallo de OCO, venta anticipada, y **error de red sostenido** (alertar solo tras N ciclos consecutivos fallidos — ej. 20 ciclos × 15s = 5 min de downtime — para no spamear por cortes momentáneos). Sustituirá/complementará el monitoreo por tmux. |
 | 2 | **Backtester para Bot 2** | Media | El `evaluacionUltimaSemana.py` solo cubre la estrategia SMA del Bot 1. No hay simulador equivalente para la estrategia de reversión a la media (EMA21/RSI) del Bot 2. Pendiente de construir antes de ajustar parámetros. |
 | 3 | **`client-order-id` en órdenes** | Baja | Sin ID único por orden, un reinicio en el momento exacto del envío podría no detectar una orden ya ejecutada. Mitigado por el ciclo de detección de balance en `procesar_mercado`. |
 | 4 | **`requirements.txt`** | Baja | Se crea solo si el proyecto lo necesita (deploy automatizado, CI). Por ahora se instala manualmente. |

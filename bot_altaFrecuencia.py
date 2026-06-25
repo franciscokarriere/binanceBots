@@ -29,10 +29,10 @@ exchange.load_markets()
 SIMBOLO = 'BTC/FDUSD'
 ARCHIVO_CACHE = 'historico_velas_fdusd.csv'
 
-# Protocolo OCO asimétrico (calibrado por backtesting multi-ventana)
+# Protocolo OCO (calibrado por backtesting multi-ventana + análisis log Jun-25)
 TAKE_PROFIT_PCT = 1.0070        # +0.70% (objetivo principal de salida)
-STOP_LOSS_TRIGGER_PCT = 0.9900  # -1.00% (barrera de catástrofe, rara vez tocada)
-STOP_LOSS_LIMIT_PCT = 0.9895    # -1.05%
+STOP_LOSS_TRIGGER_PCT = 0.9950  # -0.50% (ajustado de -1.00% → break-even winrate 70.6%→58.3%)
+STOP_LOSS_LIMIT_PCT = 0.9945    # -0.55% (mantiene gap de 0.05% sobre el trigger)
 
 # Venta anticipada: la posición se liquida a mercado ANTES de alcanzar el
 # umbral de pérdida si el TP no se materializa dentro de la ventana del scalp
